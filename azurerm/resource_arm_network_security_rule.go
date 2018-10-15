@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-04-01/network"
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
@@ -52,59 +53,51 @@ func resourceArmNetworkSecurityRule() *schema.Resource {
 			},
 
 			"source_port_range": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ConflictsWith: []string{"source_port_ranges"},
+				Type:     schema.TypeString,
+				Optional: true,
 			},
 
 			"source_port_ranges": {
-				Type:          schema.TypeSet,
-				Optional:      true,
-				Elem:          &schema.Schema{Type: schema.TypeString},
-				Set:           schema.HashString,
-				ConflictsWith: []string{"source_port_range"},
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+				Set:      schema.HashString,
 			},
 
 			"destination_port_range": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ConflictsWith: []string{"destination_port_ranges"},
+				Type:     schema.TypeString,
+				Optional: true,
 			},
 
 			"destination_port_ranges": {
-				Type:          schema.TypeSet,
-				Optional:      true,
-				Elem:          &schema.Schema{Type: schema.TypeString},
-				Set:           schema.HashString,
-				ConflictsWith: []string{"destination_port_range"},
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+				Set:      schema.HashString,
 			},
 
 			"source_address_prefix": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ConflictsWith: []string{"source_address_prefixes"},
+				Type:     schema.TypeString,
+				Optional: true,
 			},
 
 			"source_address_prefixes": {
-				Type:          schema.TypeSet,
-				Optional:      true,
-				Elem:          &schema.Schema{Type: schema.TypeString},
-				Set:           schema.HashString,
-				ConflictsWith: []string{"source_address_prefix"},
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+				Set:      schema.HashString,
 			},
 
 			"destination_address_prefix": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ConflictsWith: []string{"destination_address_prefixes"},
+				Type:     schema.TypeString,
+				Optional: true,
 			},
 
 			"destination_address_prefixes": {
-				Type:          schema.TypeSet,
-				Optional:      true,
-				Elem:          &schema.Schema{Type: schema.TypeString},
-				Set:           schema.HashString,
-				ConflictsWith: []string{"destination_address_prefix"},
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+				Set:      schema.HashString,
 			},
 
 			"source_application_security_group_ids": {
@@ -152,9 +145,45 @@ func resourceArmNetworkSecurityRule() *schema.Resource {
 	}
 }
 
+func validateSecurityRuleCustom(d *schema.ResourceData) error {
+	var err *multierror.Error
+
+	sourcePortRange := d.Get("source_port_range").(string)
+	sourcePortRanges := d.Get("source_port_ranges").(*schema.Set)
+	destinationPortRange := d.Get("destination_port_range").(string)
+	destinationPortRanges := d.Get("destination_port_ranges").(*schema.Set)
+	sourceAddressPrefix := d.Get("source_address_prefix").(string)
+	sourceAddressPrefixes := d.Get("source_address_prefixes").(*schema.Set)
+	destinationAddressPrefix := d.Get("destination_address_prefix").(string)
+	destinationAddressPrefixes := d.Get("destination_address_prefixes").(*schema.Set)
+
+	if sourcePortRange != "" && sourcePortRanges.Len() > 0 {
+		err = multierror.Append(err, fmt.Errorf(
+			"only one of \"source_port_range\" and \"source_port_ranges\" can be used per security rule"))
+	}
+	if destinationPortRange != "" && destinationPortRanges.Len() > 0 {
+		err = multierror.Append(err, fmt.Errorf(
+			"only one of \"destination_port_range\" and \"destination_port_ranges\" can be used per security rule"))
+	}
+	if sourceAddressPrefix != "" && sourceAddressPrefixes.Len() > 0 {
+		err = multierror.Append(err, fmt.Errorf(
+			"only one of \"source_address_prefix\" and \"source_address_prefixes\" can be used per security rule"))
+	}
+	if destinationAddressPrefix != "" && destinationAddressPrefixes.Len() > 0 {
+		err = multierror.Append(err, fmt.Errorf(
+			"only one of \"destination_address_prefix\" and \"destination_address_prefixes\" can be used per security rule"))
+	}
+
+	return err.ErrorOrNil()
+}
+
 func resourceArmNetworkSecurityRuleCreate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*ArmClient).secRuleClient
 	ctx := meta.(*ArmClient).StopContext
+
+	if err := validateSecurityRuleCustom(d); err != nil {
+		return err
+	}
 
 	name := d.Get("name").(string)
 	nsgName := d.Get("network_security_group_name").(string)
